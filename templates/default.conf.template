@@ -1,0 +1,58 @@
+# Rendered by envsubst at container start. Only ${UPSTREAM} and
+# ${CLIENT_MAX_BODY_SIZE} are substituted; nginx $vars are left alone.
+
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    server_tokens off;
+
+    # Size/shape limits (CVE-2026-109618 needs memory_limit exhaustion).
+    # nginx enforces these on chunked bodies too, and buffers them so PHP always
+    # receives a Content-Length.
+    client_max_body_size      ${CLIENT_MAX_BODY_SIZE};
+    client_body_buffer_size   128k;
+    client_header_buffer_size 4k;
+    large_client_header_buffers 4 8k;
+    client_body_timeout   15s;
+    client_header_timeout 15s;
+    ignore_invalid_headers on;
+    underscores_in_headers off;
+    proxy_request_buffering on;
+
+    location = /__proxy_health {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        # Only methods web apps need.
+        if ($request_method !~ ^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$) {
+            return 405;
+        }
+
+        # Multipart is the confirmed trigger for both CVEs; see 00-php2shell.conf.
+        if ($block_multipart) {
+            return 403;
+        }
+
+        proxy_pass ${UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Pin Content-Type to the single value we inspected, so a duplicated
+        # header can't show nginx one value and PHP another.
+        proxy_set_header Content-Type $http_content_type;
+        # Never forward a client-supplied progress/override hint headers.
+        proxy_set_header X-HTTP-Method-Override "";
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+}

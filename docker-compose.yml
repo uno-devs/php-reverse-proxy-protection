@@ -1,0 +1,24 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      UPSTREAM: http://php-app:80
+      CLIENT_MAX_BODY_SIZE: 8m
+      # Comma-separated exact paths that legitimately accept file uploads.
+      # These stay exposed to the multipart bug until PHP is patched.
+      UPLOAD_PATHS: ""
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /etc/nginx/conf.d
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on: [php-app]
+
+  # Replace with your real unpatched PHP deployment. Do NOT publish its port.
+  php-app:
+    image: php:8.3.35-apache
+    expose: ["80"]
